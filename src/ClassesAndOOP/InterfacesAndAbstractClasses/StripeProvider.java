@@ -32,4 +32,5 @@ public class StripeProvider implements PaymentProvider {
     public String refund(double amount) {
         return "Stripe refunded " + amount;
     }
+
 }

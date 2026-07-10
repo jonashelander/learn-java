@@ -1,4 +1,4 @@
-# Java Topics — Fast Track for Provider Integration Development
+# Java Topics 
 
 ## Java fundamentals worth knowing
 - Streams — map, filter, reduce, collect — you'll use these constantly

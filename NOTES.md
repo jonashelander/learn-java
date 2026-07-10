@@ -1,4 +1,4 @@
-# Java Learning Notes
+# Notes
 
 ---
 
@@ -6,11 +6,11 @@
 
 [Concepts & terminology](#concepts--terminology)
 
-**Foundations** *(covered before fast track)*
+**Foundations** 
 [Variables & types](#variables--types) · [Access modifiers](#access-modifiers) · [static](#static) · [Classes & OOP](#classes--oop) · [Records](#records) · [Memory model](#memory-model)
 
 **Java fundamentals**
-[Streams](#streams) · [Lambdas & functional interfaces](#lambdas--functional-interfaces) · [Optional](#optional) · [Collections](#collections) · [Exception handling](#exception-handling) · [Inheritance & polymorphism](#inheritance--polymorphism) · [Interfaces & abstract classes](#interfaces--abstract-classes) · [Regular expressions](#regular-expressions)
+[Streams](#streams) · [Lambdas & functional interfaces](#lambdas--functional-interfaces) · [Optional](#optional) · [Collections](#collections) · [Exception handling](#exception-handling) · [Inheritance & polymorphism](#inheritance--polymorphism) · [Interfaces & abstract classes](#interfaces--abstract-classes) · [Generics](#generics) · [Enums](#enums) · [Regular expressions](#regular-expressions)
 
 **Spring Boot**
 [Beans & the application context](#beans--the-application-context) · [Dependency injection](#dependency-injection) · [Core annotations](#core-annotations) · [Spring Data JPA](#spring-data-jpa) · [REST](#rest) · [Profiles & config](#profiles--config) · [Spring Retry & error handling](#spring-retry--error-handling)
@@ -478,6 +478,9 @@ A `List` is an ordered collection that allows duplicates. Elements stay in the o
 
 In practice you'll use `ArrayList` almost always. `LinkedList` and `ArrayDeque` are niche.
 
+**`List.of()` — quick inline list**
+`List.of("Stripe", "Adyen")` creates a list in one line without declaring a variable. Java infers the type from what you put inside. It is unmodifiable — you can read from it but cannot add or remove elements. Use it when you just need a fixed list to pass somewhere. If you need to modify the list afterwards, use `new ArrayList<>()` instead.
+
 **Declare as the interface, create with the implementation** — this is standard Java convention you'll see everywhere in production code:
 
 ```java
@@ -904,7 +907,17 @@ An abstract class sits between an interface and a full class. Use it when multip
 
 **Interface — a contract**
 
-An interface declares method signatures only — no method bodies, no fields (except constants). Any class that `implements` it must provide a body for every method. The compiler refuses to build if any are missing:
+An interface declares method signatures only — no method bodies, no instance fields. Any class that `implements` it must provide a body for every method. The compiler refuses to build if any are missing.
+
+Fields declared in an interface are implicitly `public static final` — they are constants, shared across everything, and cannot be changed. You don't need to write those keywords yourself:
+
+```java
+interface PaymentProvider {
+    String DEFAULT_CURRENCY = "USD";  // implicitly public static final
+}
+```
+
+This is different from methods — regular interface methods are instance methods (not static) unless you explicitly mark them `static`.
 
 ```java
 interface PaymentProvider {
@@ -958,7 +971,7 @@ interface PaymentProvider {
 }
 ```
 
-Use default methods when you want shared behaviour in an interface without forcing every implementing class to write it.
+Use default methods when you want shared behaviour in an interface without forcing every implementing class to write it. It's like combining a contract with inheritance for that one method — the difference from a regular abstract class is that a class can implement multiple interfaces and get default methods from all of them, whereas it can only extend one class.
 
 **Abstract class — partial implementation**
 
@@ -997,12 +1010,18 @@ class KlarnaProvider extends AbstractPaymentProvider {
 
 | | Interface | Abstract class |
 |---|---|---|
-| Fields | No (constants only) | Yes |
+| Fields | Constants only (`public static final`) | Regular instance fields |
 | Constructor | No | Yes |
 | Multiple allowed | Yes — `implements A, B` | No — only one `extends` |
 | Use when | Defining a contract — what something *must* do | Sharing code — what something *partly* does |
 
+**Fields — the key difference:**
+- Abstract class fields are regular instance fields — not static, not final. You can declare them without a value and subclasses set them via `super(...)`. Each instance gets its own copy.
+- Interface fields are always implicitly `public static final` — you must assign a value immediately. They are constants, shared everywhere, never changed. You cannot declare an uninitialized field in an interface.
+
 Rule of thumb: **start with an interface**. Add an abstract class only when multiple implementations share real code you want to write once.
+
+**The standard pattern:** abstract class for the shared hierarchy (fields, shared logic, forces subclasses to implement the provider-specific step), interfaces for the contracts your service depends on and for optional capabilities. A class can only extend one abstract class but implement as many interfaces as needed — so `StripeProvider extends AbstractPaymentProvider implements PaymentProvider, Refundable` is valid and common. Your `PaymentService` only knows about `PaymentProvider`. Where you specifically need refund support, you declare `Refundable` — and only the providers that can refund will satisfy that contract.
 
 **How Spring uses interfaces**
 
@@ -1023,7 +1042,421 @@ Spring finds whichever class implements `PaymentProvider` and registered as a be
 
 ---
 
+### Generics
+
+**The full picture:**
+
+You're reading a provider integration codebase and you see: `public abstract class AbstractCreditCardDeposit<C extends ProviderConfig>`. Before you can extend it with your own provider, you need to understand what `<C extends ProviderConfig>` means. Generics are how Java lets a class or method work with any type while still being type-safe — instead of writing `ApiResponse` that holds an `Object` and requires casting everywhere, you write `ApiResponse<T>` and the caller decides what type `T` is.
+
+**Production scenario:** Your payment platform has a generic `ApiResponse<T>` wrapper that every provider call returns — `T` is the body type, which differs per call: `ApiResponse<ChargeResult>`, `ApiResponse<RefundResult>`. One class handles the envelope (status code, error message, success flag); the caller decides what type lives inside. Without generics you'd either write a separate class per response type, or use `Object` and cast everywhere — both are bad.
+
+---
+
+**Why generics exist**
+
+Without generics, a box that holds anything must use `Object`:
+
+```java
+class Box {
+    Object value;
+}
+
+Box b = new Box();
+b.value = "hello";
+String s = (String) b.value;  // must cast, compiler can't help you
+```
+
+With generics, the type is declared upfront and the compiler enforces it:
+
+```java
+class Box<T> {
+    T value;
+}
+
+Box<String> b = new Box<>();
+b.value = "hello";
+String s = b.value;  // no cast needed — compiler already knows it's a String
+```
+
+`T` is a type parameter — a placeholder filled in when the class is used. The name `T` is a convention (Type), but you'll also see `E` (Element), `K`/`V` (Key/Value in Maps), `R` (Return type). They're just names.
+
+---
+
+**Generic class**
+
+Declare `<T>` after the class name. Use `T` anywhere in the class body:
+
+```java
+class ApiResponse<T> {
+    int statusCode;
+    T body;
+    String error;
+
+    ApiResponse(int statusCode, T body) {
+        this.statusCode = statusCode;
+        this.body = body;
+    }
+
+    boolean isSuccess() {
+        return statusCode >= 200 && statusCode < 300;
+    }
+}
+```
+
+The caller fills in `T`:
+
+```java
+ApiResponse<ChargeResult> response = new ApiResponse<>(200, new ChargeResult(...));
+ChargeResult result = response.body;  // no cast — compiler knows it's ChargeResult
+```
+
+---
+
+**Generic method**
+
+A method can declare its own type parameter independently of the class:
+
+```java
+class ProviderUtils {
+    static <T> T firstOrThrow(List<T> items, String errorMessage) {
+        if (items.isEmpty()) throw new RuntimeException(errorMessage);
+        return items.get(0);
+    }
+}
+```
+
+The `<T>` before the return type declares it. Java infers `T` from what you pass in — you never write it explicitly when calling:
+
+```java
+ChargeResult first = ProviderUtils.firstOrThrow(charges, "No charges found");
+```
+
+---
+
+**Bounded type parameters**
+
+`<T extends SomeClass>` restricts which types are allowed. `T` must be `SomeClass` or a subclass of it:
+
+```java
+class ProviderRunner<T extends AbstractPaymentProvider> {
+    T provider;
+
+    ProviderRunner(T provider) {
+        this.provider = provider;
+    }
+
+    String run(double amount) {
+        return provider.charge(amount);  // safe — T is guaranteed to have charge()
+    }
+}
+```
+
+Without the bound, `T` could be anything — `String`, `Integer` — and `provider.charge()` wouldn't compile because the compiler doesn't know `T` has that method. The bound tells the compiler: `T` is always an `AbstractPaymentProvider`, so all its methods are available.
+
+---
+
+**Extending a generic class — the pattern from your target codebase**
+
+This is what you'll actually do on the job. A generic base class defines the shared structure; you extend it with your specific type:
+
+```java
+abstract class AbstractProviderHandler<C extends ProviderConfig> {
+    C config;
+
+    AbstractProviderHandler(C config) {
+        this.config = config;
+    }
+
+    abstract String callApi(double amount);
+
+    String charge(double amount) {
+        return "Charging via " + callApi(amount);
+    }
+}
+```
+
+You extend it by filling in `C` with your specific config type:
+
+```java
+class KlarnaHandler extends AbstractProviderHandler<KlarnaConfig> {
+    KlarnaHandler(KlarnaConfig config) {
+        super(config);
+    }
+
+    @Override
+    String callApi(double amount) {
+        return "Klarna API key: " + config.apiKey + ", amount: " + amount;
+    }
+}
+```
+
+`config` is now typed as `KlarnaConfig` — not `ProviderConfig`, not `Object`. You get full access to all `KlarnaConfig` fields without casting.
+
+---
+
+**Wildcards — `?`**
+
+`?` means "some unknown type". You use it when you want to accept a generic type but don't need to know what `T` is:
+
+```java
+void printAll(List<?> items) {
+    for (Object item : items) {
+        System.out.println(item);
+    }
+}
+```
+
+This accepts `List<String>`, `List<Integer>`, `List<ChargeResult>` — anything. You see it most often in method parameters in library code. In your own production code you'll mostly read it, not write it.
+
+`List<? extends ProviderConfig>` — any list whose elements are `ProviderConfig` or a subclass. You can read from it but not add to it (the compiler doesn't know the exact type so it can't guarantee safety on writes).
+
+---
+
+### Enums
+
+**The problem enums solve:**
+
+Without enums, you'd represent a transaction's status as a String:
+
+```java
+String status = "COMPLETED";
+
+if (status.equals("COMPELTED")) {  // typo — no compiler error, silent bug
+    // ...
+}
+```
+
+The compiler can't help you — "COMPELTED" is a valid String. The bug only shows up at runtime.
+
+With an enum, the compiler knows every valid value upfront:
+
+```java
+TransactionStatus status = TransactionStatus.COMPLETED;
+
+if (status == TransactionStatus.COMPELTED) {  // compiler error — this value doesn't exist
+    // ...
+}
+```
+
+**Production scenario:** A payment transaction moves through states — created, sent to provider, confirmed by provider, or failed. Each state is a fixed known value. You use an enum so the compiler catches invalid states at build time, not in production at 2am.
+
+---
+
+**Basic enum**
+
+An enum is a class with a fixed set of named values. You declare it with the `enum` keyword:
+
+```java
+enum TransactionStatus {
+    PENDING,
+    PROCESSING,
+    COMPLETED,
+    FAILED,
+    REFUNDED
+}
+```
+
+You use a value like this:
+
+```java
+TransactionStatus status = TransactionStatus.COMPLETED;
+```
+
+Each value is its own instance of the enum — `TransactionStatus.COMPLETED` is always the same object, so you compare with `==` instead of `.equals()`:
+
+```java
+if (status == TransactionStatus.COMPLETED) {
+    // process it
+}
+```
+
+---
+
+**Enum with fields — attaching data to each value**
+
+An enum can have fields, a constructor, and methods — just like a class. This lets each value carry extra information:
+
+```java
+enum PaymentMethod {
+    CARD("Credit or debit card"),
+    BANK_TRANSFER("Direct bank transfer"),
+    WALLET("Digital wallet");
+
+    String displayName;
+
+    PaymentMethod(String displayName) {
+        this.displayName = displayName;
+    }
+}
+```
+
+You access the field directly on the value:
+
+```java
+PaymentMethod method = PaymentMethod.CARD;
+System.out.println(method.displayName);  // "Credit or debit card"
+```
+
+Note: you never call `new PaymentMethod(...)` yourself — the enum creates its values automatically using the constructor when the class loads.
+
+---
+
+**Built-in enum methods**
+
+Every enum gets these for free:
+
+- `.name()` — returns the value's name as a String: `TransactionStatus.COMPLETED.name()` → `"COMPLETED"`
+- `.ordinal()` — returns the position (0-based): `TransactionStatus.COMPLETED.ordinal()` → `2`
+- `TransactionStatus.values()` — returns an array of all values in declaration order — useful for looping
+- `TransactionStatus.valueOf("COMPLETED")` — converts a String to the matching enum value. Throws `IllegalArgumentException` if the String doesn't match any value.
+
+In practice you'll use `.name()` and `values()` most. `valueOf()` is useful when you receive a status as a String from an API or database and need to convert it.
+
+---
+
+**Switch on an enum**
+
+Switch works cleanly with enums — no need to write the enum name on each case:
+
+```java
+TransactionStatus status = TransactionStatus.FAILED;
+
+switch (status) {
+    case COMPLETED:
+        System.out.println("Payment confirmed");
+        break;
+    case FAILED:
+        System.out.println("Payment failed — retry");
+        break;
+    case REFUNDED:
+        System.out.println("Payment refunded");
+        break;
+    default:
+        System.out.println("Payment in progress");
+}
+```
+
+In modern Java (14+) you'll also see switch expressions which are more concise, but the above form is what you'll encounter most in existing codebases.
+
+---
+
+**Where enums appear in production code**
+
+- Database columns — Spring Data JPA can store an enum value as a String in the database automatically
+- API responses — Jackson (the JSON library) serializes an enum to its name by default: `COMPLETED` becomes `"COMPLETED"` in the JSON
+- Method parameters — instead of accepting a String `"CARD"` or `"BANK_TRANSFER"`, a method takes a `PaymentMethod` enum so the compiler enforces valid values
+
+---
+
 ### Regular expressions
+
+**The problem regular expressions solve:**
+
+You receive a webhook from a payment provider. The payload contains a phone number, but it could be formatted in multiple ways — `+46701234567`, `0701234567`, `070-123 45 67`. You need to validate it and extract the digits. Writing if/else logic to cover every format would be messy and brittle. A regular expression describes the pattern in one line, and Java checks if the input matches it.
+
+**Production scenario:** Your platform receives card numbers, IBANs, phone numbers, and webhook event names from providers — all as Strings. You use regular expressions to validate format before processing, extract specific parts (e.g. the country code from an IBAN), or route events based on their name pattern (e.g. all events starting with `payment.` go to one handler).
+
+---
+
+**How it works**
+
+A regular expression (regex) is a pattern written as a String. Java checks whether another String matches that pattern.
+
+The two classes you need are both in `java.util.regex`:
+- `Pattern` — compiles the regex pattern. Expensive to create, so compile once and reuse.
+- `Matcher` — runs the compiled pattern against a specific input String.
+
+```java
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+
+Pattern pattern = Pattern.compile("\\d{4}");  // matches exactly 4 digits
+Matcher matcher = pattern.matcher("Card expires 0928");
+boolean found = matcher.find();  // true — "0928" matches
+```
+
+Or for a quick one-off check, `String` has a built-in shortcut:
+
+```java
+boolean valid = "0928".matches("\\d{4}");  // true
+```
+
+Use `String.matches()` for simple one-off checks. Use `Pattern` + `Matcher` when you reuse the same pattern many times (better performance) or need to extract matched parts.
+
+---
+
+**Pattern syntax — the building blocks**
+
+You only need a small subset of regex to cover most production use cases:
+
+| Pattern | Means | Example match |
+|---|---|---|
+| `\d` | any digit (0-9) | `\d\d\d` matches `"123"` |
+| `\w` | any letter, digit, or underscore | `\w+` matches `"stripe_key"` |
+| `\s` | any whitespace (space, tab) | `hello\sworld` matches `"hello world"` |
+| `.` | any single character | `p.y` matches `"pay"`, `"p3y"` |
+| `+` | one or more of the previous | `\d+` matches `"1"`, `"42"`, `"9999"` |
+| `*` | zero or more of the previous | `\d*` matches `""`, `"1"`, `"999"` |
+| `?` | zero or one of the previous | `colou?r` matches `"color"` and `"colour"` |
+| `{n}` | exactly n of the previous | `\d{4}` matches `"0928"` only |
+| `{n,m}` | between n and m of the previous | `\d{2,4}` matches `"12"`, `"123"`, `"1234"` |
+| `^` | start of the string | `^pay` matches `"payment"` but not `"stripe_pay"` |
+| `$` | end of the string | `\d$` matches `"ref123"` but not `"123ref"` |
+| `[abc]` | any one of these characters | `[aeiou]` matches any vowel |
+| `[^abc]` | any character NOT in this set | `[^0-9]` matches any non-digit |
+| `(abc)` | a group — captures this part | `(\d{4})` captures 4 digits as a group |
+| `\|` | or | `card\|wallet` matches `"card"` or `"wallet"` |
+
+Note: in Java Strings, `\` must be written as `\\`. So the regex `\d` is written as `"\\d"` in Java code.
+
+---
+
+**Matching vs finding**
+
+Two different operations:
+
+- `matcher.matches()` — the entire String must match the pattern from start to end
+- `matcher.find()` — looks for the pattern anywhere inside the String
+
+```java
+Pattern p = Pattern.compile("\\d{4}");
+
+p.matcher("0928").matches();           // true  — entire string is 4 digits
+p.matcher("expires 0928").matches();   // false — not the entire string
+p.matcher("expires 0928").find();      // true  — found 4 digits somewhere inside
+```
+
+Use `matches()` for validation (is this string a valid card expiry?). Use `find()` for extraction (find the expiry inside a larger string).
+
+---
+
+**Extracting matched parts — groups**
+
+Wrap part of the pattern in `()` to capture it. After `find()` or `matches()`, call `matcher.group(1)` to get what was captured:
+
+```java
+Pattern p = Pattern.compile("expires (\\d{2})/(\\d{2})");
+Matcher m = p.matcher("Card expires 09/28");
+
+if (m.find()) {
+    String month = m.group(1);  // "09"
+    String year  = m.group(2);  // "28"
+}
+```
+
+`group(0)` is the entire match. `group(1)` is the first `()`, `group(2)` is the second, and so on.
+
+---
+
+**Common patterns you'll actually use**
+
+```java
+"\\d+"          // one or more digits — amount, ID
+"\\d{16}"       // exactly 16 digits — card number
+"[A-Z]{2}\\d+"  // two uppercase letters followed by digits — IBAN prefix
+"payment\\..*"  // starts with "payment." — webhook event routing
+"\\+?\\d{7,15}" // optional + then 7-15 digits — phone number
+```
 
 ---
 

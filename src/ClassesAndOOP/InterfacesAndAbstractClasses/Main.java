@@ -70,6 +70,9 @@ public class Main {
         //         They can override it if they want, but don't have to.
         //
         // In main, create a StripeProvider and call log(75.0) on it — without writing anything in StripeProvider.
+        System.out.println("Ex 3");
+        StripeProvider stripeProvider1 = new StripeProvider();
+        stripeProvider1.log(75.0);
 
 
         // 4. ABSTRACT CLASS — force subclasses to implement specific parts
@@ -93,6 +96,10 @@ public class Main {
         //
         // In main, create a KlarnaProvider, call charge(200.0), and print the result.
         // Observe that charge() is defined in the abstract class but calls KlarnaProvider's callApi().
+        System.out.println("Ex 4");
+        KlarnaProvider klarnaProvider = new KlarnaProvider();
+        System.out.println(klarnaProvider.charge(200.0));
+        System.out.println(klarnaProvider.name);
 
 
         // 5. MULTIPLE INTERFACES — a class can implement more than one interface
@@ -114,6 +121,12 @@ public class Main {
         // Call refund(50.0) on it and print the result.
         // Then declare another variable as AbstractPaymentProvider, assign the same RevolutProvider.
         // Call charge(50.0) on it — observe the same object works through both types.
+        System.out.println("Ex 5");
+        Refundable refundable = new RevolutProvider();
+        System.out.println(refundable.refund(50.0));
+
+        AbstractPaymentProvider abstractPaymentProvider = new RevolutProvider();
+        System.out.println(abstractPaymentProvider.charge(50.0));
 
     }
 }
