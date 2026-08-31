@@ -5,7 +5,8 @@
 Read these files before doing anything else:
 - `TOPICS.md` — the full topic list and structure
 - `NOTES.md` — Jonas's accumulated learning notes
-- Memory at `~/.claude/projects/-Users-jonashelander-IdeaProjects-LearnJava/memory/user_profile.md` — current progress and where we left off
+- `payment-service/PLAN.md` — the Spring Boot project plan; check the **Current status** section to see exactly where Jonas is
+- Memory at `~/.claude/projects/-home-jonas/memory/MEMORY.md` — user profile and project context
 
 ## Current focus
 
